@@ -1,10 +1,52 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, Button, StyleSheet, Alert, TouchableOpacity } from 'react-native';
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import {
+  View,
+  Text,
+  Button,
+  StyleSheet,
+  Alert,
+  TouchableOpacity,
+  Platform,
+} from 'react-native';
 import * as Location from 'expo-location';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import axios from 'axios';
 import { MaterialIcons } from '@expo/vector-icons';
+
+// ---------- 条件导入：原生端使用 react-native-maps，Web 端使用空组件 ----------
+let MapView: any, Marker: any, Polyline: any, PROVIDER_GOOGLE: any;
+
+if (Platform.OS !== 'web') {
+  // 原生平台：真实地图
+  const maps = require('react-native-maps');
+  MapView = maps.default;
+  Marker = maps.Marker;
+  Polyline = maps.Polyline;
+  PROVIDER_GOOGLE = maps.PROVIDER_GOOGLE;
+} else {
+  // Web 平台：占位组件
+  MapView = ({ children, style, ...props }: any) => (
+    <View
+      style={[
+        style,
+        {
+          backgroundColor: '#e0e0e0',
+          justifyContent: 'center',
+          alignItems: 'center',
+        },
+      ]}
+    >
+      <Text style={{ textAlign: 'center', color: '#666' }}>
+        地图仅在移动端可用（Android / iOS）
+      </Text>
+      {children}
+    </View>
+  );
+  Marker = () => null;
+  Polyline = () => null;
+  PROVIDER_GOOGLE = null;
+}
+// ----------------------------------------------------------------
 
 interface Coordinates {
   latitude: number;
@@ -19,7 +61,7 @@ const TrackingScreen: React.FC = () => {
   console.log(fromLng);
   console.log(destLat);
   console.log(destLng);
-  
+
   const parsedDestLat = typeof destLat === 'string' ? parseFloat(destLat) : NaN;
   const parsedDestLng = typeof destLng === 'string' ? parseFloat(destLng) : NaN;
   const parsedFromLat = typeof fromLat === 'string' ? parseFloat(fromLat) : NaN;
@@ -34,16 +76,21 @@ const TrackingScreen: React.FC = () => {
   const [hasPermission, setHasPermission] = useState<boolean>(false);
   const [arrived, setArrived] = useState<boolean>(false);
   const [isValidCoordinates, setIsValidCoordinates] = useState<boolean>(true);
-  const mapRef = useRef<MapView>(null);
+  const mapRef = useRef<any>(null);
   const watchId = useRef<Location.LocationSubscription | null>(null);
 
   // 50 meters balances GPS accuracy (5-20m) and proximity to bus stops in Salem, India
   const DESTINATION_RADIUS = 50; // Meters to consider "arrived"
-  const API_KEY = "GOOGLE_MAPS_API_KEY";
+  const API_KEY = 'YOUR_GOOGLE_MAPS_API_KEY'; // 请替换为真实的 API Key
 
   // Validate coordinates on mount
   useEffect(() => {
-    console.log('Parsed coordinates:', { parsedDestLat, parsedDestLng, parsedFromLat, parsedFromLng });
+    console.log('Parsed coordinates:', {
+      parsedDestLat,
+      parsedDestLng,
+      parsedFromLat,
+      parsedFromLng,
+    });
     if (isNaN(parsedDestLat) || isNaN(parsedDestLng)) {
       setIsValidCoordinates(false);
       Alert.alert('Error', 'Invalid destination coordinates provided.');
@@ -61,7 +108,10 @@ const TrackingScreen: React.FC = () => {
     console.log('Location permission status:', status);
     setHasPermission(status === 'granted');
     if (status !== 'granted') {
-      Alert.alert('Permission Denied', 'Location permission is required to track your journey.');
+      Alert.alert(
+        'Permission Denied',
+        'Location permission is required to track your journey.'
+      );
     }
   };
 
@@ -78,8 +128,10 @@ const TrackingScreen: React.FC = () => {
     const dLon = toRad(lon2 - lon1);
     const a =
       Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
-      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      Math.cos(toRad(lat1)) *
+        Math.cos(toRad(lat2)) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
   };
@@ -128,9 +180,22 @@ const TrackingScreen: React.FC = () => {
   };
 
   // Fetch directions for transit mode only
-  const fetchDirections = async (startLat: number, startLng: number): Promise<boolean> => {
-    if (isNaN(startLat) || isNaN(startLng) || isNaN(parsedDestLat) || isNaN(parsedDestLng)) {
-      console.error('Invalid coordinates:', { startLat, startLng, parsedDestLat, parsedDestLng });
+  const fetchDirections = async (
+    startLat: number,
+    startLng: number
+  ): Promise<boolean> => {
+    if (
+      isNaN(startLat) ||
+      isNaN(startLng) ||
+      isNaN(parsedDestLat) ||
+      isNaN(parsedDestLng)
+    ) {
+      console.error('Invalid coordinates:', {
+        startLat,
+        startLng,
+        parsedDestLat,
+        parsedDestLng,
+      });
       Alert.alert('Error', 'Invalid coordinates for route calculation.');
       return false;
     }
@@ -169,7 +234,10 @@ const TrackingScreen: React.FC = () => {
       }
     } catch (error) {
       console.error('Fetch directions error:', error);
-      Alert.alert('Error', 'Failed to fetch bus route. Please check your network connection or try again later.');
+      Alert.alert(
+        'Error',
+        'Failed to fetch bus route. Please check your network connection or try again later.'
+      );
       return false;
     }
   };
@@ -198,20 +266,30 @@ const TrackingScreen: React.FC = () => {
           }
         }
 
-        // Center map on user
-        mapRef.current?.animateToRegion({
-          latitude,
-          longitude,
-          latitudeDelta: 0.01,
-          longitudeDelta: 0.01,
-        });
+        // Center map on user (仅原生平台)
+        if (Platform.OS !== 'web' && mapRef.current) {
+          mapRef.current.animateToRegion({
+            latitude,
+            longitude,
+            latitudeDelta: 0.01,
+            longitudeDelta: 0.01,
+          });
+        }
 
         // Check if destination reached
-        const distance = calculateDistance(latitude, longitude, parsedDestLat, parsedDestLng);
+        const distance = calculateDistance(
+          latitude,
+          longitude,
+          parsedDestLat,
+          parsedDestLng
+        );
         console.log('Distance to destination:', distance);
         if (distance <= DESTINATION_RADIUS && !arrived) {
           setArrived(true);
-          Alert.alert('Destination Reached', 'You have arrived at your destination!');
+          Alert.alert(
+            'Destination Reached',
+            'You have arrived at your destination!'
+          );
           stopLocationTracking();
         }
       },
@@ -258,18 +336,18 @@ const TrackingScreen: React.FC = () => {
       <View
         style={{
           height: 80,
-          flexDirection: "row",
-          alignItems: "center",
+          flexDirection: 'row',
+          alignItems: 'center',
           paddingHorizontal: 20,
-          backgroundColor: "#fff",
+          backgroundColor: '#fff',
           paddingTop: 30,
         }}
       >
         <View
           style={{
-            justifyContent: "flex-start",
-            flexDirection: "row",
-            alignItems: "center",
+            justifyContent: 'flex-start',
+            flexDirection: 'row',
+            alignItems: 'center',
           }}
         >
           <TouchableOpacity onPress={() => router.back()}>
@@ -278,7 +356,7 @@ const TrackingScreen: React.FC = () => {
           <Text
             style={{
               fontSize: 22,
-              fontWeight: "bold",
+              fontWeight: 'bold',
               letterSpacing: 1,
               marginLeft: 10,
             }}
@@ -288,7 +366,9 @@ const TrackingScreen: React.FC = () => {
         </View>
       </View>
       {!isValidCoordinates ? (
-        <Text style={styles.errorText}>Invalid destination coordinates provided.</Text>
+        <Text style={styles.errorText}>
+          Invalid destination coordinates provided.
+        </Text>
       ) : hasPermission ? (
         <MapView
           ref={mapRef}
@@ -300,7 +380,7 @@ const TrackingScreen: React.FC = () => {
             latitudeDelta: 0.01,
             longitudeDelta: 0.01,
           }}
-          showsUserLocation={true}
+          showsUserLocation={Platform.OS !== 'web'} // Web 下忽略此属性
         >
           <Marker
             coordinate={{ latitude: parsedDestLat, longitude: parsedDestLng }}
@@ -309,7 +389,10 @@ const TrackingScreen: React.FC = () => {
           />
           {currentLocation && (
             <Marker
-              coordinate={{ latitude: currentLocation.latitude, longitude: currentLocation.longitude }}
+              coordinate={{
+                latitude: currentLocation.latitude,
+                longitude: currentLocation.longitude,
+              }}
               title="Your Location"
               pinColor="red"
             />
